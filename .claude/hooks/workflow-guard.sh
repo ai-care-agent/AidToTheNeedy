@@ -13,6 +13,8 @@ PROJECT_NUMBER=1
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 GH="$(command -v gh || echo "$HOME/.local/bin/gh")"
 CACHE="${TMPDIR:-/tmp}/aidtotheneedy-guard"
+# Claude's project memory (outside the repo); the session log lives there.
+SESSION_LOG="$HOME/.claude/projects/$(sed 's#[^A-Za-z0-9]#-#g' <<<"$ROOT")/memory/session-log.md"
 mkdir -p "$CACHE"
 
 deny() { printf 'Blocked by the task workflow (CLAUDE.md): %s\n' "$1" >&2; exit 2; }
@@ -252,11 +254,18 @@ pre_edit() {
 
 stop_check() {
   [[ "$(field .stop_hook_active)" == true ]] && exit 0
-  local data problems
+  local data problems log_problem="" last_git last_log
+  # Session log: any git activity (commit, branch switch, pull, fetch) newer than the last
+  # log entry means the work of this session is not recorded yet.
+  last_git="$(find "$ROOT/.git/logs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)"
+  last_log="$(stat -c %Y "$SESSION_LOG" 2>/dev/null || echo 0)"
+  if [[ "${last_git:-0}" -gt "$last_log" ]]; then
+    log_problem="The session log is older than the latest git work. Add to $SESSION_LOG an entry for today: what was done (tickets, PRs, decisions), where we stopped, what is next."
+  fi
   data="$("$GH" api graphql -f query='{repository(owner:"'"$OWNER"'",name:"'"$NAME"'"){
       issues(states:OPEN,first:100){nodes{number title labels(first:20){nodes{name}} projectItems(first:10){nodes{project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}
-      pullRequests(last:40){nodes{number state headRefName}}}}' 2>/dev/null)" || exit 0
-  problems="$(jq -r --argjson p "$PROJECT_NUMBER" '
+      pullRequests(last:40){nodes{number state headRefName}}}}' 2>/dev/null)" || data=""
+  [[ -n "$data" ]] && problems="$(jq -r --argjson p "$PROJECT_NUMBER" '
     .data.repository as $r
     | ($r.issues.nodes | map({key: (.number|tostring), value: ([.projectItems.nodes[] | select(.project.number==$p) | .fieldValueByName.name // "none"][0] // "off-board")}) | from_entries) as $st
     | ( [$r.issues.nodes[] | select(([.projectItems.nodes[] | select(.project.number==$p)] | length) == 0) | "#\(.number) is not on the board: scripts/board.sh add \(.number)"]
@@ -267,8 +276,9 @@ stop_check() {
             elif .state == "MERGED" and ($st[$n] == "In progress" or $st[$n] == "In review" or $st[$n] == "Todo" or $st[$n] == "Backlog") then "#\($n): PR #\(.number) is merged but the ticket is \($st[$n]); move it to Testing"
             else empty end] )
     | unique | .[]' <<<"$data" 2>/dev/null)"
+  problems="$(printf '%s\n%s' "${problems:-}" "$log_problem" | sed '/^$/d')"
   if [[ -n "$problems" ]]; then
-    jq -n --arg r "The board is out of date (CLAUDE.md workflow). Fix before finishing:
+    jq -n --arg r "Before finishing (CLAUDE.md workflow), fix:
 $problems" '{decision:"block", reason:$r}'
   fi
   exit 0
@@ -289,7 +299,10 @@ session_ctx() {
     --jq '.items[] | select(.status != "Done" and .status != "Backlog") | "#\(.content.number) [\(.status)] \(.content.title)"' 2>/dev/null | sort -t'#' -k2 -n)"
   context_out SessionStart "This project follows the task workflow in CLAUDE.md; hooks block steps that break it. Board ${OWNER} project ${PROJECT_NUMBER} — active tickets:
 ${items:-(could not read the board)}
-Current branch: $(branch)."
+Current branch: $(branch).
+
+Latest entries of the session log ($SESSION_LOG) — what we did before and where we stopped:
+$(awk '/^## /{n++} {lines[NR]=$0; sec[NR]=n} END{for(i=1;i<=NR;i++) if (sec[i] > 0 && sec[i] > n-3) print lines[i]}' "$SESSION_LOG" 2>/dev/null || echo '(no session log yet)')"
   exit 0
 }
 
