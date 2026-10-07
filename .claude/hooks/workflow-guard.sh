@@ -18,7 +18,8 @@ mkdir -p "$CACHE"
 deny() { printf 'Blocked by the task workflow (CLAUDE.md): %s\n' "$1" >&2; exit 2; }
 field() { jq -r "$1 // empty" <<<"$INPUT"; }
 branch() { git -C "$ROOT" branch --show-current 2>/dev/null; }
-task_of() { [[ "$1" =~ ^task/([0-9]+)- ]] && echo "${BASH_REMATCH[1]}"; }
+# Ticket key AICARE-<n> = GitHub issue #<n>; the branch for a ticket is named exactly AICARE-<n>.
+task_of() { [[ "$1" =~ ^AICARE-([0-9]+)$ ]] && echo "${BASH_REMATCH[1]}"; }
 
 # "state|status|labels|unticked" for an issue, cached for 60 s.
 issue_info() {
@@ -30,15 +31,17 @@ issue_info() {
     --jq '.data.repository.issue | if . == null then "MISSING|||0" else
       "\(.state)|\([.projectItems.nodes[] | select(.project.number=='"$PROJECT_NUMBER"') | .fieldValueByName.name // "none"][0] // "off-board")|\([.labels.nodes[].name] | join(","))|\(.body | [scan("- \\[ \\]")] | length)" end' \
     2>/dev/null > "$f.tmp"
-  if [[ -s "$f.tmp" ]]; then mv "$f.tmp" "$f"; cat "$f"; else rm -f "$f.tmp"; fi
+  # A missing issue comes back as a GraphQL error document instead of the formatted line.
+  if grep -q NOT_FOUND "$f.tmp" 2>/dev/null; then echo "MISSING|||0" > "$f.tmp"; fi
+  if grep -Eq '^(OPEN|CLOSED|MISSING)\|' "$f.tmp" 2>/dev/null; then mv "$f.tmp" "$f"; cat "$f"; else rm -f "$f.tmp"; fi
 }
 forget() { rm -f "$CACHE/issue-$1"; }
 info_part() { cut -d'|' -f"$2" <<<"$1"; }
 
-# PRs whose head branch is task/<n>-*: lines "number state"
+# PRs whose head branch is AICARE-<n>: lines "number state"
 prs_of() {
   "$GH" pr list -R "$REPO" --state all --limit 100 --json number,state,headRefName \
-    --jq ".[] | select(.headRefName | test(\"^task/$1-\")) | \"\(.number) \(.state)\"" 2>/dev/null
+    --jq ".[] | select(.headRefName | test(\"^AICARE-$1$\")) | \"\(.number) \(.state)\"" 2>/dev/null
 }
 
 require_open_task() {
@@ -49,6 +52,17 @@ require_open_task() {
   [[ "$state" == MISSING ]] && deny "issue #$n does not exist. Create the ticket first."
   [[ "$state" != OPEN ]] && deny "issue #$n is $state. Open a new ticket for new work."
   echo "$info"
+}
+
+# Commit message = "AICARE-<n>: <what was done>" on the first line, then a body that says why.
+check_commit_message() {
+  local n="$1" msg subject why
+  grep -Eq -- '--no-edit' <<<"$cmd" && return 0
+  msg="$(perl -0777 -ne 'if (/<<-?\s*([\x27"]?)(\w+)\1[^\n]*\n(.*?)^\s*\2\s*$/ms) { print $3 } else { while (/(?:^|\s)-m\s*(?:"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27|(\S+))/g) { print(($1 // $2 // $3), "\n\n") } }' <<<"$cmd")"
+  subject="$(head -n 1 <<<"$msg")"
+  [[ "$subject" =~ ^AICARE-$n:\ .{10,}$ ]] || deny "the commit message must start with 'AICARE-$n: <what was done>' (got: '${subject:0:60}')."
+  why="$(tail -n +2 <<<"$msg" | grep -Ev '^[[:space:]]*$|^(Co-Authored-By|Signed-off-by):' | head -1)"
+  [[ -n "$why" ]] || deny "the commit message needs a body below the first line that says why the change was made."
 }
 
 closing_keywords='(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+'
@@ -68,79 +82,89 @@ pre_bash() {
   local cmd b n info status target st prs
   cmd="$(field .tool_input.command)"
   [[ -z "$cmd" ]] && exit 0
+  # The command with heredoc bodies and quoted text removed, so words inside a ticket
+  # or PR body are not mistaken for commands. Content checks still read $cmd.
+  code="$(perl -0777 -pe 's/<<-?\s*([\x27"]?)(\w+)\1([^\n]*)\n.*?^\s*\2\s*$/$3/gms; s/\x27[^\x27]*\x27//g; s/"(?:[^"\\]|\\.)*"//g' <<<"$cmd")"
   b="$(branch)"; n="$(task_of "$b")"
 
   # Access boundaries
   if grep -qi 'safqa' <<<"$cmd"; then deny "the Safqa-LLC organization is a separate project. Never act on it."; fi
-  if grep -Eq '\bgh\b.*\bauth\b.*\b(login|refresh)\b' <<<"$cmd" && ! grep -q -- '--with-token' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bauth\b.*\b(login|refresh)\b' <<<"$code" && ! grep -q -- '--with-token' <<<"$cmd"; then
     deny "use only the fine-grained token for the ai-care-agent org (gh auth login --with-token, run by the user). OAuth logins reach Safqa-LLC."
   fi
 
   # The board changes only through scripts/board.sh, which this hook checks.
-  if grep -Eq '\bgh\b.*\bproject\b.*\bitem-(edit|delete|archive)\b|updateProjectV2ItemFieldValue|deleteProjectV2Item' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bproject\b.*\bitem-(edit|delete|archive)\b|updateProjectV2ItemFieldValue|deleteProjectV2Item' <<<"$code"; then
     deny "change board statuses only with scripts/board.sh."
   fi
-  if grep -Eq '\bgh\b.*\bapi\b.*issues/[0-9]+' <<<"$cmd" && grep -Eq 'state[^a-z]*=?[^a-z]*closed' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bapi\b.*issues/[0-9]+' <<<"$code" && grep -Eq 'state[^a-z]*=?[^a-z]*closed' <<<"$cmd"; then
     deny "close issues with 'gh issue close' so the definition of done is checked."
   fi
 
   # Git: no work directly on main, commits belong to a ticket and never carry secrets.
-  if grep -Eq '(^|[;&|(]|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit\b' <<<"$cmd"; then
-    [[ -z "$n" ]] && deny "commits happen only on a branch task/<issue>-<name>, never on '$b'. Create or pick the ticket, then: git switch -c task/<n>-<name>."
+  if grep -Eq '(^|[;&|(]|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit\b' <<<"$code"; then
+    [[ -z "$n" ]] && deny "commits happen only on the ticket's branch AICARE-<n>, never on '$b'. Create or pick the ticket, then: git switch -c AICARE-<n>."
     require_open_task "$n" >/dev/null
-    grep -q "#$n\b" <<<"$cmd" || deny "the commit message must reference the ticket: #$n."
+    check_commit_message "$n"
     check_changes_safe
   fi
-  if grep -Eq '(^|[;&|(]|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push\b' <<<"$cmd"; then
-    if grep -Eq '\bpush\b.*([[:space:]:+]|^)main\b' <<<"$cmd" || [[ "$b" == main && ! "$cmd" =~ task/ ]]; then
+  if grep -Eq '(^|[;&|(]|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push\b' <<<"$code"; then
+    if grep -Eq '\bpush\b.*([[:space:]:+]|^)main\b' <<<"$code" || [[ "$b" == main && ! "$cmd" =~ AICARE- ]]; then
       deny "never push to main. Push the task branch and merge through a PR."
     fi
   fi
-  if [[ "$b" == main ]] && grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(merge|cherry-pick|revert|reset[[:space:]]+--hard)\b' <<<"$cmd"; then
+  if [[ "$b" == main ]] && grep -Eq '(^|[;&|(]|[[:space:]])git[[:space:]]+(merge|cherry-pick|revert|reset[[:space:]]+--hard)\b' <<<"$code"; then
     deny "main changes only through merged PRs."
   fi
 
+  # One branch per ticket, named after it, created once the ticket is In progress.
+  local newb
+  newb="$(grep -Eo '\bgit([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(switch[[:space:]]+(-c|-C|--create|--force-create)|checkout[[:space:]]+(-b|-B)|branch|worktree[[:space:]]+add[[:space:]]+(-b|-B))[[:space:]]+[^-[:space:]][^[:space:]]*' <<<"$code" | awk '{print $NF}' | head -1)"
+  if [[ -n "$newb" ]]; then
+    local bn other
+    bn="$(task_of "$newb")"
+    [[ -n "$bn" ]] || deny "a ticket's branch is named exactly after it: AICARE-<n> (got '$newb')."
+    info="$(require_open_task "$bn")" || exit 2
+    [[ "$(info_part "$info" 2)" == "In progress" ]] || deny "move #$bn to In progress before creating its branch: scripts/board.sh status $bn \"In progress\"."
+    other="$(git -C "$ROOT" for-each-ref --format='%(refname:short)' "refs/heads/AICARE-$bn" "refs/remotes/origin/AICARE-$bn" | head -1)"
+    [[ -z "$other" ]] || deny "ticket AICARE-$bn already has its branch ($other). One branch per ticket: git switch AICARE-$bn."
+  fi
+
   # Issues: every ticket gets a priority.
-  if grep -Eq '\bgh\b.*\bissue\b.*\bcreate\b' <<<"$cmd" && ! grep -Eq -- '--label[= ]+[^ ]*\bP[12]\b|-l[= ]+[^ ]*\bP[12]\b' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bissue\b.*\bcreate\b' <<<"$code" && ! grep -Eq -- '--label[= ]+[^ ]*\bP[12]\b|-l[= ]+[^ ]*\bP[12]\b' <<<"$cmd"; then
     deny "give the new ticket a priority label (P1 or P2) and an area label."
   fi
 
   # PRs reference the ticket without closing it; closing happens after deploy.
-  if grep -Eq '\bgh\b.*\bpr\b.*\bcreate\b' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bpr\b.*\bcreate\b' <<<"$code"; then
     target="$(grep -Eo -- '--head[= ]+[^ ]+' <<<"$cmd" | awk '{print $NF}' | sed 's/^--head=//')"
     [[ -n "$target" ]] || target="$b"
     n="$(task_of "$target")"
-    [[ -z "$n" ]] && deny "PRs come only from task/<issue>-<name> branches."
+    [[ -z "$n" ]] && deny "PRs come only from ticket branches AICARE-<n>."
     require_open_task "$n" >/dev/null
+    grep -Eq -- "--title[= ]+[\"']?AICARE-$n: .{10,}" <<<"$cmd" || deny "the PR title must be 'AICARE-$n: <what was done>' (it becomes the commit message on main)."
+    grep -q '## What changed' <<<"$cmd" && grep -q '## Why' <<<"$cmd" || deny "the PR description needs the sections '## What changed' and '## Why' (what was done and what for)."
     grep -Eq "Refs #$n\b" <<<"$cmd" || deny "the PR description must contain 'Refs #$n'."
     grep -Eiq "$closing_keywords" <<<"$cmd" && deny "do not use Closes/Fixes/Resolves in PRs: merging would close the ticket before it is tested and deployed. Use 'Refs #$n'."
+    [[ "$b" == "$target" ]] || deny "check out $target locally before opening its PR, so its tests can run."
+    [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || deny "uncommitted changes on $target. Commit them before opening the PR."
+    local out
+    out="$(cd "$ROOT" && npm test --silent 2>&1)" || deny "npm test fails; fix it before opening the PR:
+$(tail -n 30 <<<"$out")"
+    out="$(cd "$ROOT" && npm run -s typecheck 2>&1)" || deny "npm run typecheck fails; fix it before opening the PR:
+$(tail -n 30 <<<"$out")"
   fi
 
-  # Merge only green, linked PRs from task branches.
-  if grep -Eq '\bgh\b.*\bpr\b.*\bmerge\b' <<<"$cmd"; then
-    local pr head body headsha out
-    pr="$(grep -Eo '\bmerge[[:space:]]+[0-9]+' <<<"$cmd" | grep -Eo '[0-9]+')"
-    read -r head headsha body < <("$GH" pr view ${pr:+"$pr"} -R "$REPO" --json headRefName,headRefOid,body --jq '"\(.headRefName) \(.headRefOid) \(.body | @base64)"' 2>/dev/null)
-    [[ -z "${head:-}" ]] && deny "could not read the PR from GitHub."
-    n="$(task_of "$head")"
-    [[ -z "$n" ]] && deny "only PRs from task/<issue>-<name> branches can be merged."
-    body="$(base64 -d <<<"$body")"
-    grep -Eiq "$closing_keywords" <<<"$body" && deny "the PR description closes an issue on merge. Replace it with 'Refs #$n'."
-    grep -Eq "Refs #$n\b" <<<"$body" || deny "the PR description must contain 'Refs #$n'."
-    [[ "$b" == "$head" ]] || deny "check out $head locally before merging, so its tests can run."
-    [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$headsha" ]] || deny "local $head differs from the PR head. Push or pull first."
-    [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || deny "uncommitted changes on $head. Commit them or stash them first."
-    out="$(cd "$ROOT" && npm test --silent 2>&1)" || deny "npm test fails, so the PR cannot be merged:
-$(tail -n 30 <<<"$out")"
-    out="$(cd "$ROOT" && npm run -s typecheck 2>&1)" || deny "npm run typecheck fails, so the PR cannot be merged:
-$(tail -n 30 <<<"$out")"
+  # Only the user merges into main, by hand.
+  if grep -Eq '\bgh\b.*\bpr\b.*\bmerge\b|pulls/[0-9]+/merge|mergePullRequest|enablePullRequestAutoMerge' <<<"$code"; then
+    deny "merging into main is done by the user manually. Hand over the PR link and wait; after the merge, move the ticket to Testing."
   fi
 
   # Board transitions must follow the real state of the work.
-  if grep -Eq 'board\.sh[[:space:]]+(status|add)[[:space:]]+[^0-9[:space:]]' <<<"$cmd"; then
+  if grep -Eq 'board\.sh[[:space:]]+(status|add)[[:space:]]+[^0-9[:space:]]' <<<"$code"; then
     deny "call scripts/board.sh with a literal issue number, one ticket per call, so each move can be checked."
   fi
-  if grep -Eq 'board\.sh[[:space:]]+(status|add)[[:space:]]+[0-9]+' <<<"$cmd"; then
+  if grep -Eq 'board\.sh[[:space:]]+(status|add)[[:space:]]+[0-9]+' <<<"$code"; then
     n="$(grep -Eo 'board\.sh[[:space:]]+(status|add)[[:space:]]+[0-9]+' <<<"$cmd" | grep -Eo '[0-9]+$')"
     target="$(sed -E 's/.*board\.sh[[:space:]]+(status|add)[[:space:]]+[0-9]+[[:space:]]*//; s/[;&|].*//; s/["'\'']//g; s/[[:space:]]+$//' <<<"$cmd")"
     [[ -z "$target" ]] && target=Todo
@@ -168,7 +192,7 @@ $(tail -n 30 <<<"$out")"
     esac
   fi
 
-  if grep -Eq '\bgh\b.*\bissue\b.*\bclose\b' <<<"$cmd"; then
+  if grep -Eq '\bgh\b.*\bissue\b.*\bclose\b' <<<"$code"; then
     n="$(grep -Eo '\bclose[[:space:]]+#?[0-9]+' <<<"$cmd" | grep -Eo '[0-9]+')"
     [[ -z "$n" ]] && deny "name the issue number explicitly: gh issue close <n>."
     forget "$n"
@@ -196,7 +220,7 @@ pre_edit() {
   # The private business report and git internals are not tracked work.
   case "$rel" in docs/*|.git/*|node_modules/*|dist/*|data/*) exit 0 ;; esac
   b="$(branch)"; n="$(task_of "$b")"
-  [[ -z "$n" ]] && deny "files in the repo change only on a task branch (now on '$b'). Create the ticket (gh issue create), add it to the board, then git switch -c task/<n>-<name>."
+  [[ -z "$n" ]] && deny "files in the repo change only on a task branch (now on '$b'). Create the ticket (gh issue create, title AICARE-<n>: …), add it to the board, then git switch -c AICARE-<n>."
   info="$(require_open_task "$n")" || exit 2
   status="$(info_part "$info" 2)"
   [[ "$status" == "In progress" || "$status" == "In review" ]] || deny "#$n is '$status' on the board. Move it to In progress first: scripts/board.sh status $n \"In progress\"."
@@ -207,13 +231,14 @@ stop_check() {
   [[ "$(field .stop_hook_active)" == true ]] && exit 0
   local data problems
   data="$("$GH" api graphql -f query='{repository(owner:"'"$OWNER"'",name:"'"$NAME"'"){
-      issues(states:OPEN,first:100){nodes{number labels(first:20){nodes{name}} projectItems(first:10){nodes{project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}
+      issues(states:OPEN,first:100){nodes{number title labels(first:20){nodes{name}} projectItems(first:10){nodes{project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}
       pullRequests(last:40){nodes{number state headRefName}}}}' 2>/dev/null)" || exit 0
   problems="$(jq -r --argjson p "$PROJECT_NUMBER" '
     .data.repository as $r
     | ($r.issues.nodes | map({key: (.number|tostring), value: ([.projectItems.nodes[] | select(.project.number==$p) | .fieldValueByName.name // "none"][0] // "off-board")}) | from_entries) as $st
     | ( [$r.issues.nodes[] | select(([.projectItems.nodes[] | select(.project.number==$p)] | length) == 0) | "#\(.number) is not on the board: scripts/board.sh add \(.number)"]
-      + [$r.pullRequests.nodes[] | (.headRefName | capture("^task/(?<n>[0-9]+)-")? | .n) as $n | select($st[$n] != null)
+      + [$r.issues.nodes[] | select(.title | startswith("AICARE-\(.number): ") | not) | "#\(.number) title must start with AICARE-\(.number): (gh issue edit \(.number) --title ...)"]
+      + [$r.pullRequests.nodes[] | (.headRefName | capture("^AICARE-(?<n>[0-9]+)$")? | .n) as $n | select($st[$n] != null)
           | if .state == "OPEN" and $st[$n] != "In review" and $st[$n] != "In progress" then "#\($n) has open PR #\(.number) but is \($st[$n]) on the board"
             elif .state == "OPEN" and $st[$n] == "In progress" then "#\($n) has open PR #\(.number): move it to In review"
             elif .state == "MERGED" and ($st[$n] == "In progress" or $st[$n] == "In review" or $st[$n] == "Todo" or $st[$n] == "Backlog") then "#\($n): PR #\(.number) is merged but the ticket is \($st[$n]); move it to Testing"
@@ -231,7 +256,7 @@ context_out() { jq -n --arg e "$1" --arg c "$2" '{hookSpecificOutput:{hookEventN
 prompt_ctx() {
   local b n
   b="$(branch)"; n="$(task_of "$b")"
-  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, scripts/board.sh add <n>, branch task/<n>-<name>). Current branch: ${b:-?}${n:+ (ticket #$n)}."
+  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, then title AICARE-<n>: …, scripts/board.sh add <n>, branch AICARE-<n>; commits and PRs say what was done and why). Current branch: ${b:-?}${n:+ (ticket #$n)}."
   exit 0
 }
 
