@@ -303,6 +303,8 @@ $problems" '{decision:"block", reason:$r}'
 
 context_out() { jq -n --arg e "$1" --arg c "$2" '{hookSpecificOutput:{hookEventName:$e, additionalContext:$c}}'; }
 
+TEAM_TONE="Tone: we are one team. Talk with the user as a good friend and teammate (in Russian on \"ты\"), warm and direct; we both really want to build a great product that works and succeeds. Friends are honest: say plainly when something is weak or risky and suggest the better path."
+
 prompt_ctx() {
   local b n eod=""
   b="$(branch)"; n="$(task_of "$b")"
@@ -311,7 +313,7 @@ prompt_ctx() {
     touch "$CACHE/eod-$(date +%F)"
     eod=" END OF DAY: $DAY_SUMMARY_RULE"
   fi
-  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, then title AICARE-<n>: …, scripts/board.sh add <n>, branch AICARE-<n>; commits and PRs say what was done and why). Current branch: ${b:-?}${n:+ (ticket #$n)}.$eod"
+  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, then title AICARE-<n>: …, scripts/board.sh add <n>, branch AICARE-<n>; commits and PRs say what was done and why). Current branch: ${b:-?}${n:+ (ticket #$n)}. $TEAM_TONE$eod"
   exit 0
 }
 
@@ -319,7 +321,8 @@ session_ctx() {
   local items
   items="$("$GH" project item-list "$PROJECT_NUMBER" --owner "$OWNER" --limit 200 --format json \
     --jq '.items[] | select(.status != "Done" and .status != "Backlog") | "#\(.content.number) [\(.status)] \(.content.title)"' 2>/dev/null | sort -t'#' -k2 -n)"
-  context_out SessionStart "This project follows the task workflow in CLAUDE.md; hooks block steps that break it. Board ${OWNER} project ${PROJECT_NUMBER} — active tickets:
+  context_out SessionStart "$TEAM_TONE
+This project follows the task workflow in CLAUDE.md; hooks block steps that break it. Board ${OWNER} project ${PROJECT_NUMBER} — active tickets:
 ${items:-(could not read the board)}
 Current branch: $(branch).
 

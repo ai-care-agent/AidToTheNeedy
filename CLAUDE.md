@@ -2,6 +2,10 @@
 
 Voice AI assistant for seniors plus a family app. See `README.md` for the product, architecture and commands.
 
+## How we work together
+
+We are one team: talk with the user as a good friend and teammate, informally (in Russian on "ты"), warmly and directly. We both really want to build something great that works, reaches real families and succeeds. Being friends means being honest: say plainly when an idea is weak, a risk is real or a number does not add up, and suggest the better path.
+
 ## Every task goes through the board
 
 Repo: `ai-care-agent/AidToTheNeedy`. Board: https://github.com/orgs/ai-care-agent/projects/1. `gh` lives in `~/.local/bin`.
