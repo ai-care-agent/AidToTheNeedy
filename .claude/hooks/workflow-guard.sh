@@ -33,10 +33,27 @@ issue_info() {
     2>/dev/null > "$f.tmp"
   # A missing issue comes back as a GraphQL error document instead of the formatted line.
   if grep -q NOT_FOUND "$f.tmp" 2>/dev/null; then echo "MISSING|||0" > "$f.tmp"; fi
-  if grep -Eq '^(OPEN|CLOSED|MISSING)\|' "$f.tmp" 2>/dev/null; then mv "$f.tmp" "$f"; cat "$f"; else rm -f "$f.tmp"; fi
+  if grep -Eq '^(OPEN|CLOSED|MISSING)\|' "$f.tmp" 2>/dev/null; then
+    cat "$f.tmp"
+    # Right after board.sh adds an item GitHub may still report it as off the board; never cache that.
+    if grep -q '|off-board|' "$f.tmp"; then rm -f "$f.tmp"; else mv "$f.tmp" "$f"; fi
+  else rm -f "$f.tmp"; fi
 }
 forget() { rm -f "$CACHE/issue-$1"; }
 info_part() { cut -d'|' -f"$2" <<<"$1"; }
+
+# Before blocking on a board status, read it fresh from GitHub, retrying while it catches up.
+# Prints the info line whose status matches the regex, or the last one read.
+fresh_info_matching() {
+  local n="$1" want="$2" info try
+  for try in 1 2 3 4; do
+    forget "$n"
+    info="$(issue_info "$n")"
+    [[ "$(info_part "$info" 2)" =~ ^($want)$ ]] && break
+    [[ $try -lt 4 ]] && sleep 2
+  done
+  echo "$info"
+}
 
 # PRs whose head branch is AICARE-<n>: lines "number state"
 prs_of() {
@@ -125,6 +142,7 @@ pre_bash() {
     bn="$(task_of "$newb")"
     [[ -n "$bn" ]] || deny "a ticket's branch is named exactly after it: AICARE-<n> (got '$newb')."
     info="$(require_open_task "$bn")" || exit 2
+    [[ "$(info_part "$info" 2)" == "In progress" ]] || info="$(fresh_info_matching "$bn" "In progress")"
     [[ "$(info_part "$info" 2)" == "In progress" ]] || deny "move #$bn to In progress before creating its branch: scripts/board.sh status $bn \"In progress\"."
     other="$(git -C "$ROOT" for-each-ref --format='%(refname:short)' "refs/heads/AICARE-$bn" "refs/remotes/origin/AICARE-$bn" | head -1)"
     [[ -z "$other" ]] || deny "ticket AICARE-$bn already has its branch ($other). One branch per ticket: git switch AICARE-$bn."
@@ -175,7 +193,7 @@ $(tail -n 30 <<<"$out")"
     prs="$(prs_of "$n")"
     case "$target" in
       "In review")
-        grep -q ' OPEN$' <<<"$prs" || deny "#$n goes to In review only when a PR from task/$n-* is open." ;;
+        grep -q ' OPEN$' <<<"$prs" || deny "#$n goes to In review only when a PR from branch AICARE-$n is open." ;;
       Testing)
         grep -q ' MERGED$' <<<"$prs" || deny "#$n goes to Testing only after its PR is merged." ;;
       Deployed)
@@ -190,6 +208,8 @@ $(tail -n 30 <<<"$out")"
         fi
         [[ "$st" == 0 ]] || deny "#$n still has $st unticked 'Done when' items. Verify them and tick them first." ;;
     esac
+    # The status read above is the one before this move; do not let later checks reuse it.
+    forget "$n"
   fi
 
   if grep -Eq '\bgh\b.*\bissue\b.*\bclose\b' <<<"$code"; then
@@ -223,6 +243,9 @@ pre_edit() {
   [[ -z "$n" ]] && deny "files in the repo change only on a task branch (now on '$b'). Create the ticket (gh issue create, title AICARE-<n>: …), add it to the board, then git switch -c AICARE-<n>."
   info="$(require_open_task "$n")" || exit 2
   status="$(info_part "$info" 2)"
+  if [[ "$status" != "In progress" && "$status" != "In review" ]]; then
+    status="$(info_part "$(fresh_info_matching "$n" "In progress|In review")" 2)"
+  fi
   [[ "$status" == "In progress" || "$status" == "In review" ]] || deny "#$n is '$status' on the board. Move it to In progress first: scripts/board.sh status $n \"In progress\"."
   exit 0
 }
