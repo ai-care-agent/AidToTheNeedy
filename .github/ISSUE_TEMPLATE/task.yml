@@ -1,0 +1,25 @@
+name: Task / feature
+description: Something to build or change
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be possible when this is done, and for whom (senior, family, us)?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in and out of this task.
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Checklist that proves the task is finished.
+      value: |
+        - [ ] 
+    validations:
+      required: true
