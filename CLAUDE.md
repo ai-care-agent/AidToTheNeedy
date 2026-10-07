@@ -27,6 +27,7 @@ Ticket key **`AICARE-<n>`** is GitHub issue **#<n>**. It names the issue title, 
 6. **Close only when it is really done:** the change is deployed and checked on the live instance and the issue's checklist is ticked. Close with `gh issue close <n> --comment '…'` saying what was verified and where. Tickets labelled `no-deploy` (docs, tooling) go from Testing to Done once merged.
 7. Until a permanent deploy exists (AICARE-6), tasks stop at **Testing** with a note that they are not deployed yet. Do not mark them Deployed or Done.
 8. PRs say `Refs #<n>` and never `Closes`/`Fixes`/`Resolves`, because merging must not close a ticket before it is tested and deployed.
+9. **Keep the session log.** Claude's project memory holds `session-log.md` (outside the repo). After work, add or update today's `## <date> — <topic>` entry: what was done (tickets, PRs, decisions), where we stopped, what is next. A new session starts from it.
 
 ## Public repo: what never goes in
 
@@ -53,4 +54,4 @@ Ticket key **`AICARE-<n>`** is GitHub issue **#<n>**. It names the issue title, 
 - closing a ticket before it is done, without a comment, or through the API;
 - anything that mentions Safqa-LLC, and GitHub logins other than the org's fine-grained token.
 
-At the end of every turn the hook also checks the board: every open ticket is on it and titled `AICARE-<n>: …`, open PRs are In review, merged PRs are at least Testing.
+At the end of every turn the hook also checks the board (every open ticket is on it and titled `AICARE-<n>: …`, open PRs are In review, merged PRs are at least Testing) and the session log: if git work in the repo is newer than the log, the turn cannot end until the log is updated. At session start it shows the active tickets and the last three log entries.
