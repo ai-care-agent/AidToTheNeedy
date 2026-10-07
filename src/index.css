@@ -1,0 +1,509 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/atkinson-hyperlegible-next';
+@import '@fontsource/barlow-condensed/600.css';
+@import '@fontsource/barlow-condensed/700.css';
+
+/*
+ * "Nocny puls" — dark, athletic, still made for older eyes: near-black background, graphite
+ * cards, neon accents that carry state (green / yellow / red zones, always with a word and an
+ * icon), big condensed numbers for readings. Body text stays Atkinson Hyperlegible (designed
+ * for low vision) and ≥ 7:1 on the cards; bright fills take dark text ("on-accent").
+ */
+@theme {
+  --font-sans: 'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Barlow Condensed', 'Atkinson Hyperlegible Next Variable', ui-sans-serif, sans-serif;
+
+  --color-ink: #f2f5f7;
+  --color-muted: #9aa8b1;
+  --color-paper: #07090b;
+  --color-surface: #141b20;
+  --color-raised: #1c252c;
+  --color-line: #28333b;
+  --color-on-accent: #061014;
+
+  --color-brand: #19d3a8;
+  --color-brand-strong: #3fe3bd;
+  --color-brand-soft: #0e2d28;
+  --color-accent: #ff8a4c;
+  --color-accent-soft: #33200f;
+
+  /* Card tints: dark washes of each hue — text on them stays ink. Each pairs with a bright icon colour. */
+  --color-tint-teal: #0e2522;
+  --color-tint-sun: #2a2311;
+  --color-tint-sky: #0f2030;
+  --color-tint-rose: #2d1719;
+  --color-tint-lilac: #1e1a33;
+  --color-tint-sand: #25211b;
+  --color-deep-teal: #2dd4b0;
+  --color-deep-sun: #ffc247;
+  --color-deep-sky: #5aa9ff;
+  --color-deep-rose: #ff7a6b;
+  --color-deep-lilac: #ab9bff;
+  --color-deep-sand: #d9bc8c;
+
+  /* Zones: green = w normie, yellow = do obserwacji, red = wymaga uwagi. */
+  --color-ok: #2fe37a;
+  --color-ok-soft: #0e2a19;
+  --color-warn: #ffd23f;
+  --color-warn-soft: #2d2610;
+  --color-danger: #ff4d5e;
+  --color-danger-soft: #34151a;
+
+  /* Charts: one validated series hue for the dark surface (OKLCH L 0.48–0.67, ≥ 3:1). */
+  --color-series: #2f8ff0;
+  --color-series-track: #15314d;
+
+  --color-family-bg: #07090b;
+
+  --shadow-soft: 0 0 0 1px rgb(255 255 255 / 0.04), 0 16px 32px -20px rgb(0 0 0 / 0.9);
+  --shadow-lift: 0 0 0 1px rgb(255 255 255 / 0.06), 0 24px 48px -18px rgb(0 0 0 / 0.95);
+
+  --animate-pulse-ring: pulse-ring 1.4s ease-out infinite;
+  --animate-breathe: breathe 4.5s ease-in-out infinite;
+  --animate-spin-slow: spin 2.4s linear infinite;
+  --animate-rise: rise 0.35s ease-out both;
+
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 rgb(255 138 76 / 0.5);
+    }
+    100% {
+      box-shadow: 0 0 0 30px rgb(255 138 76 / 0);
+    }
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.035);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html {
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------ "Ułatwienia": other colour themes */
+
+/* Jasny — the warm "Ciepły spokój" palette: off-white paper, deep icon colours with white on them. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-ink: #1b1a17;
+  --color-muted: #5b5750;
+  --color-paper: #f7f3ec;
+  --color-surface: #ffffff;
+  --color-raised: #f1ece3;
+  --color-line: #e6dfd3;
+  --color-on-accent: #ffffff;
+  --color-brand: #0d5c4f;
+  --color-brand-strong: #094739;
+  --color-brand-soft: #dcefe8;
+  --color-accent: #b4532a;
+  --color-accent-soft: #fbe6da;
+  --color-tint-teal: #e1f1eb;
+  --color-tint-sun: #fdf0d3;
+  --color-tint-sky: #e4edf9;
+  --color-tint-rose: #fae3df;
+  --color-tint-lilac: #ebe7f7;
+  --color-tint-sand: #f2ebe0;
+  --color-deep-teal: #0d5c4f;
+  --color-deep-sun: #8f5200;
+  --color-deep-sky: #1d4b8a;
+  --color-deep-rose: #a03626;
+  --color-deep-lilac: #56409c;
+  --color-deep-sand: #6a5236;
+  --color-ok: #17692f;
+  --color-ok-soft: #e3f3e7;
+  --color-warn: #8a4b00;
+  --color-warn-soft: #fff0d4;
+  --color-danger: #b42318;
+  --color-danger-soft: #fde7e5;
+  --color-series: #1f9e89;
+  --color-series-track: #d3efe9;
+  --color-family-bg: #f3f1ec;
+  --shadow-soft: 0 1px 2px rgb(28 25 23 / 0.06), 0 12px 32px -16px rgb(28 25 23 / 0.22);
+  --shadow-lift: 0 2px 4px rgb(28 25 23 / 0.06), 0 20px 44px -18px rgb(28 25 23 / 0.32);
+}
+
+/* Wysoki kontrast — black and white with yellow actions, every card outlined, no washes. */
+:root[data-theme='contrast'] {
+  --color-ink: #ffffff;
+  --color-muted: #f0f0f0;
+  --color-paper: #000000;
+  --color-surface: #000000;
+  --color-raised: #141414;
+  --color-line: #ffffff;
+  --color-on-accent: #000000;
+  --color-brand: #ffe600;
+  --color-brand-strong: #fff27a;
+  --color-brand-soft: #000000;
+  --color-accent: #ffb000;
+  --color-accent-soft: #000000;
+  --color-tint-teal: #000000;
+  --color-tint-sun: #000000;
+  --color-tint-sky: #000000;
+  --color-tint-rose: #000000;
+  --color-tint-lilac: #000000;
+  --color-tint-sand: #000000;
+  --color-deep-teal: #ffe600;
+  --color-deep-sun: #ffe600;
+  --color-deep-sky: #ffe600;
+  --color-deep-rose: #ffe600;
+  --color-deep-lilac: #ffe600;
+  --color-deep-sand: #ffe600;
+  --color-ok: #3dff7a;
+  --color-ok-soft: #000000;
+  --color-warn: #ffe600;
+  --color-warn-soft: #000000;
+  --color-danger: #ff6b6b;
+  --color-danger-soft: #000000;
+  --color-series: #4db8ff;
+  --color-series-track: #333333;
+  --color-family-bg: #000000;
+  --shadow-soft: 0 0 0 2px #ffffff;
+  --shadow-lift: 0 0 0 3px #ffffff;
+}
+
+/* Status washes are black here, so the state needs its own outline. */
+:root[data-theme='contrast'] :is(.bg-ok-soft, .bg-warn-soft, .bg-danger-soft, .bg-brand-soft) {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+:root[data-theme='contrast'] a {
+  text-decoration: underline;
+}
+
+:root[data-theme='light'] .orb {
+  background: radial-gradient(circle at 32% 26%, #3a9a86 0%, #11705f 42%, #0a4a3e 100%);
+  box-shadow:
+    inset 0 -10px 28px rgb(0 0 0 / 0.25),
+    inset 0 8px 18px rgb(255 255 255 / 0.18),
+    0 18px 40px -14px rgb(13 92 79 / 0.65);
+}
+
+:root[data-theme='contrast'] .orb {
+  background: #ffe600;
+  box-shadow: 0 0 0 4px #ffffff;
+}
+
+/* Pogrubiony tekst: every sentence one step heavier. */
+:root[data-bold] body {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+:root[data-bold] :is(.font-semibold, .font-bold) {
+  font-weight: 800;
+}
+
+/* Mniej ruchu: the same as the system setting, for phones where it is hard to find. */
+:root[data-reduced-motion] *,
+:root[data-reduced-motion] *::before,
+:root[data-reduced-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+body {
+  margin: 0;
+  /* At the largest text sizes a long Polish word ("Atorwastatyna") must break, not push the
+     page sideways. */
+  overflow-wrap: break-word;
+  hyphens: auto;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-brand);
+  outline-offset: 3px;
+}
+
+/* ------------------------------------------------------------------ the assistant's presence orb */
+
+.orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 32% 26%, #6ff5d2 0%, #19c49c 40%, #0a5a48 100%);
+  color: var(--color-on-accent);
+  box-shadow:
+    inset 0 -10px 28px rgb(0 0 0 / 0.25),
+    inset 0 8px 18px rgb(255 255 255 / 0.18),
+    0 0 48px -6px rgb(25 211 168 / 0.55);
+  transition:
+    transform 0.2s ease,
+    background 0.4s ease;
+}
+.orb::before {
+  /* soft halo */
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgb(25 211 168 / 0.16) 55%, transparent 72%);
+  z-index: -1;
+}
+.orb:active {
+  transform: scale(0.96);
+}
+.orb[data-phase='idle'] {
+  animation: var(--animate-breathe);
+}
+.orb[data-phase='listening'] {
+  background: radial-gradient(circle at 32% 26%, #ffc29e 0%, #ff8a4c 45%, #a8481a 100%);
+  animation: var(--animate-pulse-ring);
+}
+.orb[data-phase='thinking']::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent 0 65%, rgb(25 211 168 / 0.95) 88%, transparent);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  animation: var(--animate-spin-slow);
+}
+.orb[data-phase='speaking'] {
+  animation: var(--animate-breathe);
+  animation-duration: 1.6s;
+}
+
+/* Sound bars while the assistant speaks. */
+.bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 44px;
+}
+.bars span {
+  width: 7px;
+  border-radius: 4px;
+  background: currentColor;
+  animation: bar 0.9s ease-in-out infinite;
+}
+.bars span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.bars span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.bars span:nth-child(4) {
+  animation-delay: 0.45s;
+}
+@keyframes bar {
+  0%,
+  100% {
+    height: 12px;
+  }
+  50% {
+    height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ a heart that beats at her pulse */
+
+.heartbeat {
+  display: inline-grid;
+  transform-origin: center;
+  animation: heartbeat var(--beat, 1s) ease-out infinite;
+}
+
+@keyframes heartbeat {
+  0%,
+  40%,
+  100% {
+    transform: scale(1);
+  }
+  12% {
+    transform: scale(1.22);
+  }
+  24% {
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heartbeat {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ family toasts and small feedback */
+
+.toast-in {
+  animation: toast-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pop {
+  animation: pop 0.45s ease-out both;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ------------------------------------------------------------------ big condensed readings */
+
+.num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
+.kicker {
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Score rings fill in when they appear. */
+.ring-arc {
+  transition: stroke-dasharray 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* "Czytaj po dotknięciu": the text being read gets a clear frame. */
+.reading {
+  outline: 3px solid var(--color-brand);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+:root[data-theme='contrast'] :is(.shadow-soft, .shadow-lift, .shadow-sm) {
+  box-shadow: 0 0 0 2px #ffffff !important;
+}
+
+/* "Błysk przy powiadomieniach": a bright frame that pulses three times. */
+.flash-alert body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 14px var(--color-brand);
+  animation: flash-alert 0.8s ease-in-out 3;
+}
+
+@keyframes flash-alert {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ "Pokaż palcem" */
+
+.spotlight-hole {
+  box-shadow:
+    0 0 0 9999px rgb(0 0 0 / 0.74),
+    0 0 0 4px var(--color-brand);
+  transition:
+    left 0.3s ease,
+    top 0.3s ease,
+    width 0.3s ease,
+    height 0.3s ease;
+  animation: spotlight-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes spotlight-pulse {
+  0%,
+  100% {
+    outline: 0 solid rgb(25 211 168 / 0.6);
+  }
+  50% {
+    outline: 14px solid rgb(25 211 168 / 0);
+  }
+}
+
+.spotlight-hand {
+  animation: spotlight-hand 1s ease-in-out infinite;
+}
+
+@keyframes spotlight-hand {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -10px;
+  }
+}
+
+/* "Automatycznie": sunset fades the colours instead of switching them in one frame. */
+@media (prefers-reduced-motion: no-preference) {
+  :root.theme-fade:not([data-reduced-motion]) *,
+  :root.theme-fade:not([data-reduced-motion]) *::before,
+  :root.theme-fade:not([data-reduced-motion]) *::after {
+    transition:
+      background-color 1s ease,
+      color 1s ease,
+      border-color 1s ease,
+      box-shadow 1s ease !important;
+  }
+}

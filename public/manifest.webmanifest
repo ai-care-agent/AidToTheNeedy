@@ -1,0 +1,11 @@
+{
+  "name": "AI Care Agent",
+  "short_name": "AI Care",
+  "description": "Głosowy asystent dla seniora i aplikacja dla rodziny (POC)",
+  "start_url": "/senior",
+  "display": "standalone",
+  "background_color": "#fffaf3",
+  "theme_color": "#0f5c4d",
+  "lang": "pl",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

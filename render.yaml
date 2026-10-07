@@ -1,0 +1,19 @@
+# Render Blueprint: New → Blueprint → this repository. Free plan: the service sleeps after 15
+# minutes without visitors (the first visit then takes about a minute) and starts with a fresh
+# demo household.
+services:
+  - type: web
+    name: ai-care-agent
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/demo/status
+    envVars:
+      - key: DEMO_RESET_DAILY
+        value: "1"
+      # Optional. Without a key the app runs with local rules (no voice agent) and costs nothing.
+      # With a key, anyone who has the link spends your tokens — set DEMO_PASSWORD too.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEMO_PASSWORD
+        sync: false
