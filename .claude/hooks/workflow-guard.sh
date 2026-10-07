@@ -252,6 +252,18 @@ pre_edit() {
   exit 0
 }
 
+DAY_SUMMARY_RULE="End of the working day: add to today's '## $(date +%F) …' entry in $SESSION_LOG a block that starts with '**Day summary**' — 5 to 8 sentences: what we did today, what went well, what did not, your honest view of the progress, how we are moving towards launch and the first revenue, and our progress against the competitors and what we still lack compared to them. Give the same summary to the user in your reply."
+
+# Sentences in the '**Day summary**' block of today's log entry (0 if there is none).
+day_summary_sentences() {
+  perl -CSD -0777 -ne '
+    my $d = shift @ARGV // "";
+    my ($sec) = /^## \Q$d\E[^\n]*\n(.*?)(?=^## |\z)/ms or do { print 0; exit };
+    my ($sum) = $sec =~ /\*\*Day summary\*\*(.*?)(?=\n\s*\n\*\*|\z)/s or do { print 0; exit };
+    my $n = () = $sum =~ /[.!?](?=\s|$)/g; print $n;
+  ' "$SESSION_LOG" "$(date +%F)" 2>/dev/null || echo 0
+}
+
 stop_check() {
   [[ "$(field .stop_hook_active)" == true ]] && exit 0
   local data problems log_problem="" last_git last_log
@@ -261,6 +273,11 @@ stop_check() {
   last_log="$(stat -c %Y "$SESSION_LOG" 2>/dev/null || echo 0)"
   if [[ "${last_git:-0}" -gt "$last_log" ]]; then
     log_problem="The session log is older than the latest git work. Add to $SESSION_LOG an entry for today: what was done (tickets, PRs, decisions), where we stopped, what is next."
+  fi
+  # End of the working day (flagged by the prompt hook): today's entry needs the day summary.
+  if [[ -f "$CACHE/eod-$(date +%F)" ]] && [[ "$(day_summary_sentences)" -lt 5 ]]; then
+    log_problem="${log_problem:+$log_problem
+}$DAY_SUMMARY_RULE"
   fi
   data="$("$GH" api graphql -f query='{repository(owner:"'"$OWNER"'",name:"'"$NAME"'"){
       issues(states:OPEN,first:100){nodes{number title labels(first:20){nodes{name}} projectItems(first:10){nodes{project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}
@@ -287,9 +304,14 @@ $problems" '{decision:"block", reason:$r}'
 context_out() { jq -n --arg e "$1" --arg c "$2" '{hookSpecificOutput:{hookEventName:$e, additionalContext:$c}}'; }
 
 prompt_ctx() {
-  local b n
+  local b n eod=""
   b="$(branch)"; n="$(task_of "$b")"
-  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, then title AICARE-<n>: …, scripts/board.sh add <n>, branch AICARE-<n>; commits and PRs say what was done and why). Current branch: ${b:-?}${n:+ (ticket #$n)}."
+  # The user ends the working day (Russian, Polish or English): the day summary becomes mandatory.
+  if field .prompt | perl -CSD -Mutf8 -ne 'BEGIN{$f=1} $f=0 if /заканчиваем|закругляемся|закончим|на сегодня (вс[её]|хватит|закончим)|до завтра|конец (рабочего )?дня|kończymy|na dziś (wszystko|koniec)|do jutra|end of (the )?day|done for (the )?day|that.?s all for today/i; END{exit $f}'; then
+    touch "$CACHE/eod-$(date +%F)"
+    eod=" END OF DAY: $DAY_SUMMARY_RULE"
+  fi
+  context_out UserPromptSubmit "Task workflow (enforced by hooks, see CLAUDE.md): if this message asks for new work, create a ticket first (gh issue create with area + P1/P2 labels, then title AICARE-<n>: …, scripts/board.sh add <n>, branch AICARE-<n>; commits and PRs say what was done and why). Current branch: ${b:-?}${n:+ (ticket #$n)}.$eod"
   exit 0
 }
 
