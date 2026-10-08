@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Everyday operations on a server prepared by deploy/setup-server.sh (run with sudo):
+#   aicare deploy [ref]        check out ref (default: main), then roll it out
+#   aicare rollout             rebuild with fresh base images, restart, wait until healthy
+#   aicare backup              archive the database and voice messages and send it off the server
+#   aicare restore [archive]   put the newest archive (or the named one, from the store or a local file) live
+#   aicare status              deployed commit, containers, health
+#   aicare logs [service]      follow the logs (app by default)
+#   aicare compose <args>      any docker compose command with this server's settings
+set -euo pipefail
+shopt -s inherit_errexit
+
+ROOT=${AICARE_ROOT:-/srv/aicare}
+APP=$ROOT/app
+DATA=$ROOT/data
+BACKUPS=$ROOT/backups
+ENV_FILE=$ROOT/.env
+BACKUP_ENV=$ROOT/backup.env
+APP_UID=1000 # the "node" user inside the app image owns the data
+
+die() { echo "aicare: $*" >&2; exit 1; }
+
+compose() {
+  AICARE_DATA=$DATA AICARE_ENV_FILE=$ENV_FILE \
+    docker compose --project-directory "$APP/deploy" -f "$APP/deploy/compose.yml" --env-file "$ENV_FILE" "$@"
+}
+
+wait_healthy() {
+  for _ in $(seq 60); do
+    if compose exec -T app wget -q -O /dev/null http://127.0.0.1:8787/healthz 2>/dev/null; then
+      echo "app is healthy"
+      return 0
+    fi
+    sleep 2
+  done
+  compose logs --tail 50 app >&2
+  die "the app did not become healthy within 2 minutes"
+}
+
+load_backup_env() {
+  [[ -f $BACKUP_ENV ]] || die "$BACKUP_ENV is missing (template: deploy/backup.env.example)"
+  set -a
+  # shellcheck source=/dev/null
+  source "$BACKUP_ENV"
+  set +a
+  [[ -n ${BACKUP_REMOTE:-} ]] || die "set BACKUP_REMOTE in $BACKUP_ENV"
+}
+
+deploy() {
+  local ref=${1:-main} target
+  git -C "$APP" fetch -q --prune --tags origin
+  if git -C "$APP" rev-parse -q --verify "origin/$ref^{commit}" >/dev/null; then target=origin/$ref; else target=$ref; fi
+  git -C "$APP" checkout -q --detach "$target"
+  # Go on with the version of this script that was just checked out, so new logic meets new files.
+  exec "$APP/deploy/aicare" rollout
+}
+
+rollout() {
+  echo "rolling out $(git -C "$APP" log -1 --format='%h %s')"
+  # Without a password the whole site, and the Claude key with it, is open to everyone.
+  local password
+  password=$(compose config --format json | jq -r '.services.app.environment.DEMO_PASSWORD // ""')
+  [[ -n $password ]] || die "DEMO_PASSWORD is empty for the app; set it in $ENV_FILE (in single quotes)"
+  compose build --pull app
+  compose pull caddy
+  compose up -d --remove-orphans
+  wait_healthy
+  compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+  docker image prune -f >/dev/null
+}
+
+backup() {
+  load_backup_env
+  local name work archive
+  name=aicare-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+  # Inside the data folder, so the app container can write the copy there.
+  work=$DATA/.backup
+  rm -rf "$work"
+  install -d -o "$APP_UID" -g "$APP_UID" "$work"
+  compose exec -T app npm run -s backup-db -- /app/data/.backup/care.db
+
+  install -d -m 700 "$BACKUPS"
+  archive=$BACKUPS/$name
+  local parts=(-C "$work" care.db)
+  [[ -d $DATA/audio ]] && parts+=(-C "$DATA" audio)
+  tar -czf "$archive" "${parts[@]}"
+  rm -rf "$work"
+
+  rclone copyto "$archive" "$BACKUP_REMOTE/$name"
+  rclone delete --min-age "${BACKUP_KEEP_DAYS:-30}d" --include 'aicare-*.tar.gz' "$BACKUP_REMOTE"
+  # Keep the three newest archives on the server too, for a quick local restore.
+  find "$BACKUPS" -maxdepth 1 -name 'aicare-*.tar.gz' | sort -r | tail -n +4 | xargs -r rm --
+  if [[ -n ${BACKUP_HEARTBEAT_URL:-} ]]; then curl -fsS -m 10 --retry 3 -o /dev/null "$BACKUP_HEARTBEAT_URL"; fi
+  echo "backup $name → $BACKUP_REMOTE"
+}
+
+restore() {
+  load_backup_env
+  local source=${1:-latest} stamp work archive previous
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  work=$BACKUPS/restore-$stamp
+  install -d -m 700 "$BACKUPS"
+  install -d -o "$APP_UID" -g "$APP_UID" "$work"
+
+  if [[ -f $source ]]; then
+    archive=$source
+  else
+    if [[ $source == latest ]]; then
+      source=$(rclone lsf --files-only --include 'aicare-*.tar.gz' "$BACKUP_REMOTE" | sort | tail -n 1)
+      [[ -n $source ]] || die "no archives in $BACKUP_REMOTE"
+    fi
+    archive=$work/$source
+    rclone copyto "$BACKUP_REMOTE/$source" "$archive"
+  fi
+  echo "restoring $(basename "$archive")"
+  tar -xzf "$archive" -C "$work"
+  [[ -f $work/care.db ]] || die "the archive has no care.db"
+  chown -R "$APP_UID:$APP_UID" "$work"
+  # Check the copy with the app image before touching the live data.
+  compose run --rm --no-deps -T -v "$work:/restore" app npm run -s backup-db -- --check /restore/care.db
+
+  compose stop app
+  previous=
+  if [[ -d $DATA ]]; then
+    previous=$ROOT/data.before-restore-$stamp
+    mv "$DATA" "$previous"
+  fi
+  install -d -o "$APP_UID" -g "$APP_UID" -m 750 "$DATA"
+  install -o "$APP_UID" -g "$APP_UID" -m 640 "$work/care.db" "$DATA/care.db"
+  if [[ -d $work/audio ]]; then cp -a "$work/audio" "$DATA/audio"; fi
+  compose up -d
+  wait_healthy
+  rm -rf "$work"
+  echo "restored${previous:+; the previous data is kept in $previous}"
+}
+
+status() {
+  echo "commit: $(git -C "$APP" log -1 --format='%h %s (%cr)')"
+  compose ps
+  compose exec -T app wget -q -O - http://127.0.0.1:8787/healthz && echo
+}
+
+main() {
+  local cmd=${1:-}
+  shift || true
+  case $cmd in
+    deploy) deploy "$@" ;;
+    rollout) rollout ;;
+    backup) backup ;;
+    restore) restore "$@" ;;
+    status) status ;;
+    logs) compose logs -f --tail 100 "${1:-app}" ;;
+    compose) compose "$@" ;;
+    *) sed -n '2,9p' "$0"; exit 1 ;;
+  esac
+}
+
+# On one line: `deploy` checks out a new version of this very file while it runs.
+main "$@"; exit $?

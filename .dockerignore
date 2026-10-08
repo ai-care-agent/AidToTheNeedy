@@ -4,3 +4,8 @@ data
 .env
 .idea
 *.log
+.git
+.claude
+docs
+test-results
+playwright-report

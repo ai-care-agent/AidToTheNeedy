@@ -7,7 +7,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    healthCheckPath: /api/demo/status
+    healthCheckPath: /healthz
     envVars:
       - key: DEMO_RESET_DAILY
         value: "1"

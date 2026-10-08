@@ -1,0 +1,11 @@
+[Unit]
+Description=AI Care Agent: nightly backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Warsaw
+RandomizedDelaySec=10min
+# A server that was off at 03:30 (staging sleeps at night) backs up when it starts.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

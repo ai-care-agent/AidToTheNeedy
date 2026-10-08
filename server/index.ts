@@ -7,12 +7,14 @@ import { Care } from './care';
 import { openDb } from './db';
 import { config } from './env';
 import { publishChange, sseHandler } from './events';
+import { healthz } from './healthz';
 import { apiRouter } from './routes';
 import { startScheduler } from './scheduler';
 import { seedDemo } from './seed';
 import { dateKey } from './time';
 
-const care = new Care(openDb(config.dbPath), publishChange);
+const db = openDb(config.dbPath);
+const care = new Care(db, publishChange);
 
 /** Seeds the demo household, and remembers the day so a public demo can start fresh each morning. */
 function seed(reason: string) {
@@ -33,6 +35,12 @@ if (process.env.DEMO_RESET_DAILY === '1') {
 }
 
 const app = express();
+
+// Before the password: the uptime monitor and Docker check it without logging in.
+app.get('/healthz', (_req, res) => {
+  const result = healthz(db);
+  res.status(result.status === 'ok' ? 200 : 503).json(result);
+});
 
 // DEMO_PASSWORD: one shared password for everything (browser login prompt, any user name).
 const password = process.env.DEMO_PASSWORD;

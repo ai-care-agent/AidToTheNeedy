@@ -1,0 +1,52 @@
+# Production and staging on any Linux server with Docker: the app behind Caddy, which gets the HTTPS
+# certificate by itself. Run it through deploy/aicare: it passes /srv/aicare/.env (settings and secrets,
+# never in git) and the data folder.
+name: aicare
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  app:
+    build:
+      context: ..
+    image: aicare-app
+    init: true
+    restart: unless-stopped
+    env_file: ${AICARE_ENV_FILE:-/srv/aicare/.env}
+    volumes:
+      - ${AICARE_DATA:-/srv/aicare/data}:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in /srv/aicare/.env}
+    volumes:
+      # The folder, not the file: git replaces a changed file, and a mounted file would keep the old copy.
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

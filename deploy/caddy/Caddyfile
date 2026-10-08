@@ -1,0 +1,18 @@
+# HTTPS in front of the app. DOMAIN comes from /srv/aicare/.env; its DNS record must point at this
+# server before the first start, so Let's Encrypt can issue the certificate.
+{$DOMAIN} {
+	# The event stream must reach the apps at once, so it is never compressed.
+	@compressible not path /api/stream
+	encode @compressible zstd gzip
+
+	reverse_proxy app:8787 {
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

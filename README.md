@@ -96,7 +96,9 @@ cloudflared tunnel --no-autoupdate --url http://localhost:8787   # prints https:
 
 Live updates use a POST event stream (`src/lib/serverEvents.ts`) because Cloudflare quick tunnels hold back a GET event stream until it ends.
 
-**Permanently** (like a normal website): the repository has a `Dockerfile` and a Render Blueprint (`render.yaml`). Push it to GitHub, then on [render.com](https://render.com) choose *New → Blueprint* and pick the repository. The free plan sleeps after 15 minutes without visitors (the first visit then takes about a minute) and starts with a fresh demo household; `DEMO_RESET_DAILY=1` also gives a clean day every morning. Any Docker host works the same way (Fly.io, Railway, a VPS).
+**Our production and staging servers** run the same image behind Caddy (HTTPS), with nightly backups off the server. See [`deploy/README.md`](deploy/README.md).
+
+**A free public demo**: the repository has a `Dockerfile` and a Render Blueprint (`render.yaml`). Push it to GitHub, then on [render.com](https://render.com) choose *New → Blueprint* and pick the repository. The free plan sleeps after 15 minutes without visitors (the first visit then takes about a minute) and starts with a fresh demo household; `DEMO_RESET_DAILY=1` also gives a clean day every morning. Any Docker host works the same way (Fly.io, Railway, a VPS).
 
 Everyone who opens the link shares one demo household: what one visitor does, the others see. Without `ANTHROPIC_API_KEY` nothing costs money. With a key, set `DEMO_PASSWORD` so that strangers cannot spend it.
 
@@ -201,6 +203,7 @@ src/
   lib/                a11y (settings), bluetooth (band and cuff), health, speech (STT/TTS), recorder, live state (SSE), video, safety, formatting, media
 shared/               DTOs and call-guard rules shared by server and web
 public/samples/       sample letters for „Przeczytaj pismo” and a (fictional) medicine box
+deploy/               servers: Docker Compose with Caddy, setup, deploy, backup and restore (aicare), AWS provisioning
 ```
 
 ## Tests
