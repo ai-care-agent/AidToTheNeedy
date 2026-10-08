@@ -5,7 +5,10 @@
 #   - an SSH key, ~/.ssh/aicare (created here if missing; the private key never leaves this machine);
 #   - production (t4g.small, 24/7) and staging (t4g.micro, off from 23:00 to 07:00 Warsaw time) on
 #     Ubuntu 24.04 with fixed IPs, prepared by deploy/setup-server.sh at first boot;
-#   - a monthly budget with e-mail alerts.
+#   - a monthly budget, created first: e-mails at 50/80/100% and on a forecast over 100%, and at
+#     STOP_AT_PERCENT (default 125%) both servers are stopped automatically;
+#   - the hard limits (regions, instance sizes, no Marketplace) are an SCP set in the management account:
+#     deploy/aws/guardrails-scp.json.
 # Everything else (Docker, HTTPS, backups) is the same on any provider: see deploy/README.md.
 # Safe to re-run: existing pieces are reused. Usage:
 #   AICARE_ACCOUNT_ID=123456789012 BUDGET_EMAIL=you@example.com deploy/aws/provision.sh
@@ -17,6 +20,7 @@ export AWS_REGION=${AWS_REGION:-eu-central-1}
 export AWS_PAGER=""
 REF=${AICARE_REF:-main}
 BUDGET_USD=${BUDGET_USD:-40}
+STOP_AT_PERCENT=${STOP_AT_PERCENT:-125}
 KEY_FILE=${SSH_KEY_FILE:-$HOME/.ssh/aicare}
 TAG='{Key=Project,Value=aicare}'
 
@@ -178,11 +182,42 @@ budget() {
   aws budgets create-budget --account-id "$ACCOUNT" \
     --budget "$(jq -nc --arg usd "$BUDGET_USD" '{BudgetName: "aicare-monthly", BudgetType: "COST", TimeUnit: "MONTHLY", BudgetLimit: {Amount: $usd, Unit: "USD"}}')" \
     --notifications-with-subscribers "$(jq -nc --arg email "$BUDGET_EMAIL" '
-      [["ACTUAL", 80], ["ACTUAL", 100], ["FORECASTED", 100]] | map({
+      [["ACTUAL", 50], ["ACTUAL", 80], ["ACTUAL", 100], ["FORECASTED", 100]] | map({
         Notification: {NotificationType: .[0], ComparisonOperator: "GREATER_THAN", Threshold: .[1], ThresholdType: "PERCENTAGE"},
         Subscribers: [{SubscriptionType: "EMAIL", Address: $email}]})')"
 }
 
+# The brake: past STOP_AT_PERCENT of the budget, AWS Budgets stops the servers by itself.
+# (Billing data lags by hours, so it is a brake, not an exact cap.)
+budget_action() { # instance ids…
+  local role=aicare-budget-actions action definition
+  if ! aws iam get-role --role-name "$role" >/dev/null 2>&1; then
+    log "creating IAM role $role"
+    aws iam create-role --role-name "$role" --tags Key=Project,Value=aicare --assume-role-policy-document "$(jq -nc --arg a "$ACCOUNT" '{
+      Version: "2012-10-17",
+      Statement: [{Effect: "Allow", Principal: {Service: "budgets.amazonaws.com"}, Action: "sts:AssumeRole",
+                   Condition: {StringEquals: {"aws:SourceAccount": $a}}}]}')" >/dev/null
+    aws iam attach-role-policy --role-name "$role" \
+      --policy-arn arn:aws:iam::aws:policy/AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM
+  fi
+  definition=$(jq -nc --arg region "$AWS_REGION" '{SsmActionDefinition: {ActionSubType: "STOP_EC2_INSTANCES", Region: $region, InstanceIds: $ARGS.positional}}' --args "$@")
+  action=$(aws budgets describe-budget-actions-for-budget --account-id "$ACCOUNT" --budget-name aicare-monthly \
+    --query 'Actions[0].ActionId' --output text)
+  if [[ $action == None ]]; then
+    log "adding the brake: stop the servers at $STOP_AT_PERCENT% of the budget"
+    retry_iam aws budgets create-budget-action --account-id "$ACCOUNT" --budget-name aicare-monthly \
+      --notification-type ACTUAL --action-type RUN_SSM_DOCUMENTS \
+      --action-threshold "ActionThresholdValue=$STOP_AT_PERCENT,ActionThresholdType=PERCENTAGE" \
+      --definition "$definition" --execution-role-arn "arn:aws:iam::$ACCOUNT:role/$role" --approval-model AUTOMATIC \
+      --subscribers "SubscriptionType=EMAIL,Address=$BUDGET_EMAIL" >/dev/null
+  else
+    retry_iam aws budgets update-budget-action --account-id "$ACCOUNT" --budget-name aicare-monthly --action-id "$action" \
+      --action-threshold "ActionThresholdValue=$STOP_AT_PERCENT,ActionThresholdType=PERCENTAGE" \
+      --definition "$definition" --approval-model AUTOMATIC >/dev/null
+  fi
+}
+
+budget # first, before anything that costs money
 bucket
 server_role
 security_group
@@ -192,7 +227,7 @@ STAGING=$(instance staging t4g.micro)
 PROD_IP=$(elastic_ip prod "$PROD")
 STAGING_IP=$(elastic_ip staging "$STAGING")
 staging_schedule "$STAGING"
-budget
+budget_action "$PROD" "$STAGING"
 
 cat <<EOF
 Done: account $ACCOUNT, $AWS_REGION.

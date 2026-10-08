@@ -67,6 +67,21 @@ AICARE_ACCOUNT_ID=<account id> BUDGET_EMAIL=<e-mail> deploy/aws/provision.sh
 The script stops if the profile points to any other account. You can run it again, for example to
 allow SSH from a new IP (`ADMIN_CIDR`).
 
+### Spending limits
+
+AWS cannot cap a bill exactly, so there are three layers:
+
+1. **Hard limits: the SCP [`aws/guardrails-scp.json`](aws/guardrails-scp.json).** It is attached to the
+   AICARE account in the management account: AWS Organizations → Policies → Service control policies →
+   enable → Create policy → paste → attach to AICARE. With it, nothing in AICARE runs outside Frankfurt and
+   servers can only be t4g.nano to t4g.medium. Marketplace subscriptions, Bedrock, SageMaker, NAT gateways,
+   load balancers, reservations and long-lived IAM keys are refused. Remove `bedrock:*` when the AI moves to
+   Bedrock (AICARE-5). The account's default vCPU quota (5) also bounds what can run.
+2. **A brake.** At `STOP_AT_PERCENT` of the budget (default 125% of 40 USD a month), AWS Budgets stops both
+   servers by itself. Billing data lags by hours, so this is a brake, not an exact cap. The morning schedule
+   starts staging again. Before real users arrive, switch the action to manual approval.
+3. **Alerts.** E-mails at 50%, 80% and 100% of the budget, and when the forecast goes over 100%.
+
 ## Backups and restore
 
 `aicare backup` takes a consistent copy of the live database (`VACUUM INTO`, the app keeps running) and

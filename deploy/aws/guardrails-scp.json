@@ -1,0 +1,50 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyFrankfurt",
+      "Effect": "Deny",
+      "NotAction": [
+        "account:*", "acm:*", "aws-portal:*", "billing:*", "budgets:*", "ce:*", "cloudfront:*", "cur:*",
+        "ec2:DescribeRegions", "freetier:*", "health:*", "iam:*", "identitystore:*", "invoicing:*", "kms:*",
+        "notifications:*", "organizations:*", "payments:*", "pricing:*", "route53:*", "route53domains:*",
+        "s3:GetAccountPublic*", "s3:ListAllMyBuckets", "s3:PutAccountPublic*", "sso:*", "sso-directory:*",
+        "sts:*", "support:*", "tax:*", "trustedadvisor:*", "waf:*", "wafv2:*"
+      ],
+      "Resource": "*",
+      "Condition": { "StringNotEquals": { "aws:RequestedRegion": ["eu-central-1"] } }
+    },
+    {
+      "Sid": "OnlySmallServers",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": { "StringNotLike": { "ec2:InstanceType": ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium"] } }
+    },
+    {
+      "Sid": "NothingExpensiveOrPrepaid",
+      "Effect": "Deny",
+      "Action": [
+        "aws-marketplace:Subscribe", "bedrock:*", "sagemaker:*", "redshift:*", "es:*", "kafka:*",
+        "eks:CreateCluster", "globalaccelerator:*", "shield:CreateSubscription",
+        "ec2:CreateNatGateway", "elasticloadbalancing:CreateLoadBalancer", "ec2:AllocateHosts",
+        "ec2:CreateCapacityReservation", "ec2:RequestSpotFleet", "ec2:PurchaseHostReservation",
+        "ec2:PurchaseReservedInstancesOffering", "rds:PurchaseReservedDBInstancesOffering",
+        "savingsplans:CreateSavingsPlan", "route53domains:RegisterDomain", "route53domains:TransferDomain"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoLongLivedKeys",
+      "Effect": "Deny",
+      "Action": ["iam:CreateUser", "iam:CreateAccessKey"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "StayInOrganization",
+      "Effect": "Deny",
+      "Action": "organizations:LeaveOrganization",
+      "Resource": "*"
+    }
+  ]
+}
