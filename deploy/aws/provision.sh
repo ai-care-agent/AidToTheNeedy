@@ -185,6 +185,8 @@ budget() {
       [["ACTUAL", 50], ["ACTUAL", 80], ["ACTUAL", 100], ["FORECASTED", 100]] | map({
         Notification: {NotificationType: .[0], ComparisonOperator: "GREATER_THAN", Threshold: .[1], ThresholdType: "PERCENTAGE"},
         Subscribers: [{SubscriptionType: "EMAIL", Address: $email}]})')"
+  log "verify $BUDGET_EMAIL: AWS sends it a link from @aws.com (check spam). Open it within 12 h while signed in"
+  log "to this account, or no budget alert arrives (deploy/README.md, Spending limits)"
 }
 
 # The brake: past STOP_AT_PERCENT of the budget, AWS Budgets stops the servers by itself.

@@ -80,7 +80,12 @@ AWS cannot cap a bill exactly, so there are three layers:
 2. **A brake.** At `STOP_AT_PERCENT` of the budget (default 125% of 40 USD a month), AWS Budgets stops both
    servers by itself. Billing data lags by hours, so this is a brake, not an exact cap. The morning schedule
    starts staging again. Before real users arrive, switch the action to manual approval.
-3. **Alerts.** E-mails at 50%, 80% and 100% of the budget, and when the forecast goes over 100%.
+3. **Alerts.** E-mails at 50%, 80% and 100% of the budget, and when the forecast goes over 100%. AWS
+   Budgets only writes to a verified address: right after the budget is created it sends a link from `@aws.com`
+   (look in spam too). Open it within 12 hours while signed in to the AICARE account; until then no alert
+   arrives. If the link has expired: Billing and Cost Management → Budgets → `aicare-monthly` → Resend
+   verification. Verification runs through AWS User Notifications in us-east-1, which is why the SCP lets
+   `notifications-contacts:*` through.
 
 ## Backups and restore
 
