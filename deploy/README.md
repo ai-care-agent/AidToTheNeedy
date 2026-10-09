@@ -85,7 +85,11 @@ AWS cannot cap a bill exactly, so there are three layers:
    (look in spam too). Open it within 12 hours while signed in to the AICARE account; until then no alert
    arrives. If the link has expired: Billing and Cost Management → Budgets → `aicare-monthly` → Resend
    verification. Verification runs through AWS User Notifications in us-east-1, which is why the SCP lets
-   `notifications-contacts:*` through.
+   `notifications-contacts:*` through. If the link opens "Page not found" (a console session in another
+   account), take `token` and `emailContactId` from the link and confirm from the CLI:
+   `aws notificationscontacts activate-email-contact --region us-east-1 --arn
+   arn:aws:notifications-contacts::<account id>:emailcontact/<emailContactId> --code <token>` (five attempts
+   per address).
 
 ## Backups and restore
 
