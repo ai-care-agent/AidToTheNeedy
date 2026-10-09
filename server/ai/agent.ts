@@ -14,9 +14,11 @@ export interface ChatInput {
 const NOT_CONFIGURED =
   'Asystent głosowy nie jest jeszcze skonfigurowany. Proszę poprosić kogoś z rodziny o dodanie klucza ANTHROPIC_API_KEY w pliku .env.';
 
-/** One spoken turn: the senior's words (and optionally a photo) in, a short spoken reply out. */
-export async function runSeniorAgent(care: Care, input: ChatInput): Promise<ChatResponse> {
-  const now = new Date();
+/**
+ * One spoken turn: the senior's words (and optionally a photo) in, a short spoken reply out.
+ * `now` is injectable so the eval (eval/agent) can replay a conversation at a fixed hour.
+ */
+export async function runSeniorAgent(care: Care, input: ChatInput, now = new Date()): Promise<ChatResponse> {
   care.touchActivity(now, 'chat');
   if (!aiStatus().configured) return { reply: NOT_CONFIGURED, actions: [], error: 'not_configured' };
 
@@ -59,7 +61,7 @@ export async function runSeniorAgent(care: Care, input: ChatInput): Promise<Chat
 
   const reply = replyText(final);
   care.appendConversation('user', input.image ? `[zdjęcie dokumentu] ${input.text}` : input.text, now);
-  care.appendConversation('assistant', reply);
+  care.appendConversation('assistant', reply, now);
   console.log(
     `[agent] ${Date.now() - started} ms · ${usage.requests} req · tools: ${toolsUsed.join(', ') || '—'} · tokens in ${usage.input} / cache read ${usage.cacheRead} / cache write ${usage.cacheWrite} / out ${usage.output} · stop: ${final?.stop_reason}`,
   );

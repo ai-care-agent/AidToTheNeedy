@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",
     "reset-db": "tsx --disable-warning=ExperimentalWarning server/scripts/reset.ts",
+    "eval:agent": "tsx --disable-warning=ExperimentalWarning eval/agent/run-eval.mjs",
     "dev:https": "HTTPS=1 npm run dev"
   },
   "dependencies": {

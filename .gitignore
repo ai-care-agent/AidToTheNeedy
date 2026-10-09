@@ -7,3 +7,10 @@ data/
 test-results/
 playwright-report/
 docs/
+
+# Eval runs (AICARE-2): transcripts and derived reports stay local
+.claude/hillclimb/**/traces/
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/state.json
+.claude/hillclimb/**/trajectory/
+.claude/hillclimb/**/progress.txt

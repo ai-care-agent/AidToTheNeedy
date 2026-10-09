@@ -1,0 +1,22 @@
+{
+  "metrics": [
+    { "id": "pass", "label": "pass", "kind": "binary" },
+    { "id": "actions", "label": "actions", "kind": "binary" },
+    { "id": "reply", "label": "reply (judge)", "kind": "binary" }
+  ],
+  "perf_fields": [
+    { "id": "cost_usd", "label": "cost", "unit": "$" },
+    { "id": "in_tokens", "label": "in tok" },
+    { "id": "out_tokens", "label": "out tok" },
+    { "id": "requests", "label": "API calls" },
+    { "id": "tool_calls", "label": "tools" },
+    { "id": "latency_s", "label": "latency", "unit": "s" }
+  ],
+  "harness_paths": [
+    "eval/agent/harness.ts",
+    "eval/agent/cases.ts",
+    "eval/agent/checks.ts",
+    "eval/agent/judge.ts",
+    "eval/agent/fixtures.ts"
+  ]
+}
